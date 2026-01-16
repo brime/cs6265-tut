@@ -1,27 +1,18 @@
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
-#include <linux/mm.h>
-#include <linux/file.h>
-#include <linux/sched.h>
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
-#include <linux/highmem.h>
-#include <linux/scatterlist.h>
-#include <linux/crypto.h>
+#include <linux/uaccess.h>
 #include <linux/fs.h>
 
 MODULE_AUTHOR("Taesoo Kim");
 MODULE_LICENSE("GPL");
 
-#define KFLAG_SIZE     512
-
-// a single log entry included as part of flag
+#define KFLAG_SIZE 1024
 char glog[128];
 
-static
-int show_kflag(struct seq_file *p, void *v)
-{
+static int show_kflag(struct seq_file *p, void *v) {
     seq_printf(p, "%s", "\
 F38FE749E36CD0437AD0062D6836C393618FCC4A412FDE666C89EB41AC0814D5\n\
 B734EBE71127B13BFE569599D6521FF424CEBDF34F07A91CF70B8CB12E324283\n\
@@ -38,77 +29,63 @@ EC266EA25DE5EC175CB1E01B4E92830E6CDFA8FB36C8EC58B37B400D4F75B0F9\n\
 2747CB047C92E27232B4050A3B6D8A6E8377D939933AD921C6B14BA1FCD2BEA2\n\
 3199EC6E3C817041CD61B7B1394CAB1EBB01ACD74D4F1A7E857D22FDA227B834\n\
 2AF0AEC61229004D9E8CF6F4E3622419A37F6D410526951D6EB2F639DBEA49AD\n");
-    
-  return 0;
+    return 0;
 }
 
-static
-ssize_t kflag_proc_write(struct file *file, const char __user *buf,
-                         size_t count, loff_t *ppos)
-{
-  int i;
+static ssize_t kflag_proc_write(struct file *file, const char __user *buf,
+                                size_t count, loff_t *ppos) {
+    size_t len = min(count, sizeof(glog) - 1);
 
-  if (count > sizeof(glog) - 1)
-    return -EFAULT;
+    if (copy_from_user(glog, buf, len))
+        return -EFAULT;
 
-  if (copy_from_user(glog, buf, count))
-    return -EFAULT;
+    glog[len] = '\0';
 
-  glog[count] = '\0';
+    // Replace newlines with spaces to keep log on one line
+    while (len--) {
+        if (glog[len] == '\n') glog[len] = ' ';
+    }
 
-  // enforce a single line
-  for (i = 0; i < count; i ++) {
-    if (glog[i] == '\n')
-      glog[i] = ' ';
-  }
-
-  printk(KERN_INFO "log: %s (%zd)", glog, count);
-  return count;
+    pr_info("[kflag] log: %s\n", glog);
+    return count;
 }
 
-static
-ssize_t kflag_proc_read(struct file *file, char __user *buf, size_t size, loff_t *ppos)
-{
-  // Fix for 6.x kernels: file_count(file) is the modern way to check refs
-  if (file_count(file) > 1) {
-    printk(KERN_INFO "[kflag] Not allowed to inherit the flag fd\n");
-    return -EPERM;
-  }
-  return seq_read(file, buf, size, ppos);
+static ssize_t kflag_proc_read(struct file *file, char __user *buf, size_t size, loff_t *ppos) {
+    // Fix for 6.x kernels: file_count(file) is the modern way to check refs
+    if (file_count(file) > 1) {	    
+        pr_warn("[kflag] Unauthorized access: FD inheritance detected\n");
+        return -EPERM;
+    }
+    return seq_read(file, buf, size, ppos);
 }
 
-static
-int kflag_proc_open(struct inode *inode, struct file *file)
-{
-  return single_open_size(file, show_kflag, NULL, KFLAG_SIZE);
+static int kflag_proc_open(struct inode *inode, struct file *file) {
+    return single_open(file, show_kflag, NULL);
 }
 
-// Fix: Using 'struct proc_ops' for modern kernels (5.6+)
-// Note the field name changes: .read -> .proc_read, etc.
+// Updated for 5.6+ kernels
 static const struct proc_ops proc_kflag_ops = {
-  .proc_open    = kflag_proc_open,
-  .proc_read    = kflag_proc_read,
-  .proc_write   = kflag_proc_write,
-  .proc_lseek   = seq_lseek,
-  .proc_release = single_release,
+    .proc_open    = kflag_proc_open,
+    .proc_read    = kflag_proc_read,
+    .proc_write   = kflag_proc_write,
+    .proc_lseek   = seq_lseek,
+    .proc_release = single_release,
 };
 
-static
-int kflag_init(void)
-{
-  memset(glog, '\0', sizeof(glog));
-  if (!proc_create("flag", 0666, NULL, &proc_kflag_ops))
-    return -ENOMEM;
-  return 0;
+static int __init kflag_init(void) {
+    memset(glog, 0, sizeof(glog));
+    if (!proc_create("flag", 0444, NULL, &proc_kflag_ops)) {
+        return -ENOMEM;
+    }
+    pr_info("[kflag] module loaded\n");
+    return 0;
 }
 
-static
-void kflag_exit(void)
-{
-  remove_proc_entry("flag", NULL);
+static void __exit kflag_exit(void) {
+    remove_proc_entry("flag", NULL);
+    pr_info("[kflag] module unloaded\n");
 }
 
 module_init(kflag_init);
 module_exit(kflag_exit);
-
 
