@@ -1,0 +1,2 @@
+# Ignore Vagrant metadata for the 'tut' project
+tut/.vagrant/
