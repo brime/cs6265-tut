@@ -11,6 +11,9 @@
 #include <linux/crypto.h>
 #include <linux/fs.h>
 
+MODULE_AUTHOR("Taesoo Kim");
+MODULE_LICENSE("GPL");
+
 #define KFLAG_SIZE     512
 
 // a single log entry included as part of flag
@@ -66,8 +69,8 @@ ssize_t kflag_proc_write(struct file *file, const char __user *buf,
 static
 ssize_t kflag_proc_read(struct file *file, char __user *buf, size_t size, loff_t *ppos)
 {
-  /* NOTE. inherited */
-  if (atomic_long_read(&file->f_count) > 1) {
+  // Fix for 6.x kernels: file_count(file) is the modern way to check refs
+  if (file_count(file) > 1) {
     printk(KERN_INFO "[kflag] Not allowed to inherit the flag fd\n");
     return -EPERM;
   }
@@ -80,20 +83,21 @@ int kflag_proc_open(struct inode *inode, struct file *file)
   return single_open_size(file, show_kflag, NULL, KFLAG_SIZE);
 }
 
-static const struct file_operations proc_kflag_ops = {
-  .owner    = THIS_MODULE,
-  .open     = kflag_proc_open,
-  .read     = kflag_proc_read,
-  .write    = kflag_proc_write,
-  .llseek   = seq_lseek,
-  .release  = single_release,
+// Fix: Using 'struct proc_ops' for modern kernels (5.6+)
+// Note the field name changes: .read -> .proc_read, etc.
+static const struct proc_ops proc_kflag_ops = {
+  .proc_open    = kflag_proc_open,
+  .proc_read    = kflag_proc_read,
+  .proc_write   = kflag_proc_write,
+  .proc_lseek   = seq_lseek,
+  .proc_release = single_release,
 };
 
 static
 int kflag_init(void)
 {
   memset(glog, '\0', sizeof(glog));
-  if (!proc_create("flag", S_IWUGO | S_IRUGO, NULL, &proc_kflag_ops))
+  if (!proc_create("flag", 0666, NULL, &proc_kflag_ops))
     return -ENOMEM;
   return 0;
 }
@@ -107,5 +111,4 @@ void kflag_exit(void)
 module_init(kflag_init);
 module_exit(kflag_exit);
 
-MODULE_AUTHOR("Taesoo Kim");
-MODULE_LICENSE("GPL");
+

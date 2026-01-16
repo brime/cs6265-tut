@@ -1,8 +1,9 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 
 import os
 import sys
 import glob
+import subprocess
 
 def usage():
     print("""
@@ -14,25 +15,49 @@ Examples:
 
 if len(sys.argv) < 2:
     usage()
-    exit(1)
+    sys.exit(1)
 
 tut = sys.argv[1]
-if len(glob.glob("/home/lab*/%s*" % tut)) == 0:
+# Using f-strings (Python 3.6+) for cleaner string formatting
+if len(glob.glob(f"/home/lab*/{tut}*")) == 0:
     print("[!] failed to locate the tutorial")
-    exit(2)
+    sys.exit(2)
 
 def set_aslr(n):
-    os.system("echo %s | sudo tee /proc/sys/kernel/randomize_va_space" % n)
+    # Use subprocess for better handling of shell commands
+    cmd = f"echo {n} | sudo tee /proc/sys/kernel/randomize_va_space"
+    subprocess.run(cmd, shell=True, check=True, stdout=subprocess.DEVNULL)
 
-tut_num = int(tut[len("tut"):])
+# Extract tutorial number
+try:
+    tut_num = int(tut[len("tut"):])
+except ValueError:
+    print("[!] Invalid tutorial format. Use 'tutXX'")
+    sys.exit(1)
+
 if tut_num <= 4:
     set_aslr(0)
 else:
     set_aslr(2)
 
+# Check for kernel module and load if missing
 if not os.path.exists("/proc/flag"):
-    os.system("cd /home/vagrant/kflag; make")
-    os.system("sudo insmod /home/vagrant/kflag/kflag.ko")
+    print("[*] Building and loading kflag module...")
 
-print("[!] Ready for %s" % tut)
-os.system("cat /proc/flag")
+    # Define the specific compiler binary name the kernel expects
+    EXPECTED_CC = "x86_64-linux-gnu-gcc-13"
+
+    try:
+        # Use 'cwd' to change directory instead of 'cd' inside a shell string
+        subprocess.run(["make", f"CC={EXPECTED_CC}"], cwd="/home/vagrant/kflag", check=True)
+        
+        # Load the module
+        subprocess.run(["sudo", "insmod", "/home/vagrant/kflag/kflag.ko"], check=True)
+        
+        print("[+] kflag module loaded successfully.")
+    except subprocess.CalledProcessError as e:
+        print(f"[-] Failed to build or load module: {e}")
+
+print(f"[!] Ready for {tut}")
+subprocess.run(["cat", "/proc/flag"])
+
