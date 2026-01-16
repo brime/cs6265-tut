@@ -1,0 +1,38 @@
+#!/usr/bin/env python2
+
+import os
+import sys
+import glob
+
+def usage():
+    print("""
+Usage: ./seclab [tut]
+
+Examples:
+    ./seclab tut01       : setup environment tut01
+""")
+
+if len(sys.argv) < 2:
+    usage()
+    exit(1)
+
+tut = sys.argv[1]
+if len(glob.glob("/home/lab*/%s*" % tut)) == 0:
+    print("[!] failed to locate the tutorial")
+    exit(2)
+
+def set_aslr(n):
+    os.system("echo %s | sudo tee /proc/sys/kernel/randomize_va_space" % n)
+
+tut_num = int(tut[len("tut"):])
+if tut_num <= 4:
+    set_aslr(0)
+else:
+    set_aslr(2)
+
+if not os.path.exists("/proc/flag"):
+    os.system("cd /home/vagrant/kflag; make")
+    os.system("sudo insmod /home/vagrant/kflag/kflag.ko")
+
+print("[!] Ready for %s" % tut)
+os.system("cat /proc/flag")

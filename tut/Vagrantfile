@@ -1,0 +1,22 @@
+Vagrant.configure('2') do |config|
+
+  config.vm.box = "bento/ubuntu-24.04"
+
+  config.vm.provision "file", source: "./kflag", destination: "/home/vagrant/kflag"
+  config.vm.provision "file", source: "./tuts", destination: "/home/vagrant/tuts"
+  config.vm.provision "file", source: "./seclab", destination: "/home/vagrant/seclab"
+  config.vm.provision "file", source: "./setup.sh", destination: "/home/vagrant/setup.sh"
+  config.vm.provision "shell", path: "./setup.sh"
+
+  # no shared folder
+  config.vm.synced_folder ".", "/vagrant", disabled: true
+
+  # Libvirt (QEMU/KVM) Provider Settings
+  config.vm.provider :libvirt do |libvirt|
+    libvirt.driver = "kvm"      # Uses KVM for hardware acceleration
+    libvirt.memory = 8192      # Matches your VirtualBox config
+    libvirt.cpus = 4           # Matches your VirtualBox config
+    libvirt.uri = "qemu:///system" # Standard URI for system-wide QEMU
+  end
+
+end
